@@ -1,17 +1,4 @@
-# Step 1: Connect to Google Drive (PyDrive)
-# Step 2: Download files from Drive
-# Step 2.5: Ensure we downloaded correct files (1 for each of 3 schools)
-# Step 3: Read csv into dataframe using pandas, union into 1 DF
-# Step 3.5: Clean the data inclusive of deleting columns (A-D)
-# new column = last updated date & formatting
-# Step 4: Write DF into data warehouse
-
-# Goal 1: Connect to PyDrive, download the files into our local folder
-# Goal 2: Read into pandas & data transformation
-# Goal 3: Load the df into warehouse
 import os
-from pydrive.drive import GoogleDrive
-from pydrive.auth import GoogleAuth
 from sqlsorcery import MSSQL
 import pandas as pd
 import glob
@@ -19,18 +6,7 @@ from datetime import datetime
 import re
 
 
-# TO DO:
-# folder_id = os.getenv("FOLDER")
-# gauth = GoogleAuth()
-# gauth.LocalWebserverAuth()
-# drive = GoogleDrive(gauth)
-# file_list = drive.ListFile({'q': "'root' in parents and trashed=false"}).GetList()
-# file_list
-# # file_list = drive.ListFile({'driveId': folder_id, 'includeItemsFromAllDrives': True, 'corpora': 'allDrives'
-# # , 'supportsAllDrives': True}).GetList()
-# print(file_list)
-# for file1 in file_list:
-#     print(file1['title'])
+# TO DO: Google Drive processing
 
 
 # Function that will create my dataframe
@@ -66,9 +42,11 @@ def clean_col(dataframe):
 def change_table(dataframe):
     active_dates = []
     for col in dataframe.columns:
-        if "Active" in col:
+        if re.search(
+            "^Active_", col
+        ):  # want to use regex because we only want to melt columns 'Active_MM/DD'
             active_dates.append(col)
-    df = dataframe.melt(
+    dataframe = dataframe.melt(
         id_vars=[
             "School_Name",
             "Student_Name",
@@ -83,7 +61,7 @@ def change_table(dataframe):
         value_name="WasActive",
     )
     # rearrange the columns
-    df = df[
+    dataframe = dataframe[
         [
             "School_Name",
             "Student_Name",
@@ -99,12 +77,15 @@ def change_table(dataframe):
     # reformat the 'Active Date' values to only date
     # Before the transformation, 'Active Date' had 'Active_MM/DD' but we want to strip it down to only the date
     # Example: 'Active_08/16' is now '08/16/2020'
-    df["Active_Date"] = (
-        df["Active_Date"].str.replace("Active_", "")
+    dataframe["Active_Date"] = (
+        dataframe["Active_Date"].str.replace("Active_", "")
         + "/"
         + str(datetime.date(datetime.now()).year)
     )
-    return df
+    dataframe["WasActive"] = dataframe["WasActive"].fillna(
+        0
+    )  # fill null values with 0 to indicate the student is not active
+    return dataframe
 
 
 # Function to load data that we don't have
@@ -121,10 +102,7 @@ def load_newest_data(sql, df):
 def main(files):
     df = create(files)
     df = clean_col(df)
-    # print(df)
-    # print(df.columns)
-    # df = change_table(df)
-    # print(df)
+    df = change_table(df)
     sql = MSSQL()
     # load_newest_data(sql, df)
 
