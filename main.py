@@ -42,9 +42,7 @@ def clean_col(dataframe):
 def change_table(dataframe):
     active_dates = []
     for col in dataframe.columns:
-        if re.search(
-            "^Active_", col
-        ):  # want to use regex because we only want to melt columns 'Active_MM/DD'
+        if col.startswith("Active"):  # only gets columns with 'Active_MM/DD'
             active_dates.append(col)
     dataframe = dataframe.melt(
         id_vars=[
