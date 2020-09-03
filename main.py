@@ -88,8 +88,11 @@ def change_table(dataframe):
 
 # Function to load data that we don't have
 def load_newest_data(sql, df):
-    time = sql.query("SELECT MAX(Active_Date) FROM custom.SeeSaw_Student_Activity")
-    if time != None:
+    table = sql.query(
+        "SELECT * FROM information_schema.tables WHERE table_name = 'SeeSaw_Student_Activity"
+    )
+    if table != None:
+        time = sql.query("SELECT MAX(Active_Date) FROM custom.SeeSaw_Student_Activity")
         latest_timestamp = time["Active_Date"][0]
         df = df[df["Active_Date"] > latest_timestamp]
         sql.insert_into("SeeSaw_Student_Activity", df)
@@ -102,7 +105,7 @@ def main(files):
     df = clean_col(df)
     df = change_table(df)
     sql = MSSQL()
-    # load_newest_data(sql, df)
+    load_newest_data(sql, df)
 
 
 if __name__ == "__main__":
