@@ -2,6 +2,7 @@ from datetime import datetime
 import glob
 import os
 import re
+import logging
 
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
@@ -9,6 +10,22 @@ import pandas as pd
 from sqlsorcery import MSSQL
 
 from drive import Drive
+from mailer import Mailer
+
+
+def configure_logging(config):
+    logging.basicConfig(
+        handlers=[
+            logging.FileHandler(filename="data/app.log", mode="w+"),
+            logging.StreamHandler(sys.stdout),
+        ],
+        level=logging.DEBUG if config.DEBUG else logging.INFO,
+        format="%(asctime)s | %(levelname)s: %(message)s",
+        datefmt="%Y-%m-%d %I:%M:%S%p %Z",
+    )
+    logging.getLogger("google_auth_oauthlib").setLevel(logging.ERROR)
+    logging.getLogger("googleapiclient").setLevel(logging.ERROR)
+    logging.getLogger("google").setLevel(logging.ERROR)
 
 
 def get_credentials():
@@ -107,6 +124,7 @@ def load_newest_data(sql, df):
     latest_timestamp = time["Active_Date"][0]
     df = df[df["Active_Date"] > latest_timestamp]
     sql.insert_into("SeeSaw_Student_Activity", df)
+    logging.info(f"Inserted {len(df)} new records into SeeSaw_Student_Activity.")
 
 
 def main():

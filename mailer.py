@@ -7,14 +7,14 @@ from email.mime.text import MIMEText
 
 
 class Mailer:
-    def __init__(self, config, jobname):
+    def __init__(self, jobname):
         self.jobname = jobname
-        self.user = config.SENDER_EMAIL
-        self.password = config.SENDER_PWD
-        self.to_email = config.RECIPIENT_EMAIL
+        self.user = os.getenv("SENDER_EMAIL")
+        self.password = os.getenv("SENDER_PWD")
+        self.to_email = os.getenv("RECIPIENT_EMAIL")
         context = ssl.create_default_context()
         self.server = smtplib.SMTP_SSL(
-            config.EMAIL_SERVER, config.EMAIL_PORT, context=context
+            os.getenv("EMAIL_SERVER"), os.getenv("EMAIL_PORT"), context=context
         )
 
     def _subject_line(self):
