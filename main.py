@@ -1,12 +1,24 @@
-import os
-from sqlsorcery import MSSQL
-import pandas as pd
-import glob
 from datetime import datetime
+import glob
+import os
 import re
 
+from googleapiclient.discovery import build
+from google.oauth2 import service_account
+import pandas as pd
+from sqlsorcery import MSSQL
 
-# TO DO: Google Drive processing
+from drive import Drive
+
+
+def get_credentials():
+    """Generate service account credentials object"""
+    SCOPES = [
+        "https://www.googleapis.com/auth/drive",
+    ]
+    return service_account.Credentials.from_service_account_file(
+        "service.json", scopes=SCOPES, subject=os.getenv("ACCOUNT_EMAIL")
+    )
 
 
 # Function that will create my dataframe
@@ -97,7 +109,13 @@ def load_newest_data(sql, df):
     sql.insert_into("SeeSaw_Student_Activity", df)
 
 
-def main(files):
+def main():
+    creds = get_credentials()
+    service = build("drive", "v3", credentials=creds)
+    drive = Drive(service)
+    drive.get_file_metadata()
+    drive.download_file()
+    files = glob.glob("KIPP_Bay_Area_Schools*.csv")  # one each week
     df = create(files)
     df = clean_col(df)
     df = change_table(df)
@@ -106,5 +124,4 @@ def main(files):
 
 
 if __name__ == "__main__":
-    files = glob.glob("KIPP_Bay_Area_Schools*.csv")  # one each week
-    main(files)
+    main()
