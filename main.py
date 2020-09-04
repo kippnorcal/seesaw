@@ -95,23 +95,18 @@ def change_table(dataframe):
     dataframe["WasActive"] = dataframe["WasActive"].fillna(
         0
     )  # fill null values with 0 to indicate the student is not active
+    dataframe["Active_Date"] = dataframe["Active_Date"].astype("datetime64[ns]")
     return dataframe
 
 
 # Function to load data that we don't have
 def load_newest_data(sql, df):
-    table = sql.query(
-        "SELECT TABLE_NAME FROM information_schema.tables WHERE table_name = 'SeeSaw_Student_Activity'"
+    time = sql.query(
+        "SELECT MAX(Active_Date) AS Active_Date FROM custom.SeeSaw_Student_Activity"
     )
-    if table["TABLE_NAME"][0] != None:
-        time = sql.query(
-            "SELECT MAX(Active_Date) AS Active_Date FROM custom.SeeSaw_Student_Activity"
-        )
-        latest_timestamp = time["Active_Date"][0]
-        df = df[df["Active_Date"] > latest_timestamp]
-        sql.insert_into("SeeSaw_Student_Activity", df)
-    else:
-        sql.insert_into("SeeSaw_Student_Activity", df, if_exists="replace")
+    latest_timestamp = time["Active_Date"][0]
+    df = df[df["Active_Date"] > latest_timestamp]
+    sql.insert_into("SeeSaw_Student_Activity", df)
 
 
 def main():
