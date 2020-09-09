@@ -3,6 +3,7 @@ import glob
 import os
 import re
 import logging
+import traceback
 
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
@@ -142,4 +143,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+        error_message = None
+    except Exception as e:
+        logging.exception(e)
+        error_message = traceback.format_exc()
+    Mailer("SeeSaw_Activity").notify(error_message=error_message)

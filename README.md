@@ -25,10 +25,9 @@ git clone https://github.com/kipp-bayarea/seesaw.git
 
 3. Create .env file with project secrets
 
-4. Before running the script, you need to create the table using the definition in the SeeSaw_Student_Activity.sql
-
+```
 # Google Drive Folder ID to extract from
-FOLDER_ID=id number that comes after drive.google.com/drive/folders/{FOLDER_ID}
+SEESAW_FOLDER=id number that comes after drive.google.com/drive/folders/{FOLDER_ID}
 
 
 # Database variables
@@ -55,8 +54,10 @@ RECIPIENT EMAIL=email of person receiving
 EMAIL_SERVER=
 
 EMAIL_PORT=
-
+```
 ## Running the job
+
+Before running the script, you need to create the table using the definition in the SeeSaw_Student_Activity.sql
 
 ### Using Docker:
 ```
