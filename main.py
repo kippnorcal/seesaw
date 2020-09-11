@@ -13,29 +13,19 @@ from drive import DriveFolder
 from mailer import Mailer
 
 
-def configure_logging(config):
-    logging.basicConfig(
-        handlers=[
-            logging.FileHandler(filename="data/app.log", mode="w+"),
-            logging.StreamHandler(sys.stdout),
-        ],
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s: %(message)s",
-        datefmt="%Y-%m-%d %I:%M:%S%p %Z",
-    )
-    logging.getLogger("google_auth_oauthlib").setLevel(logging.ERROR)
-    logging.getLogger("googleapiclient").setLevel(logging.ERROR)
-    logging.getLogger("google").setLevel(logging.ERROR)
-
-
-def create(files_array):
-    """Function that will create my dataframe"""
+def extract(files_array):
+    """Function that will extract my CSV into a dataframe"""
     df = pd.read_csv(files_array[0], sep=",", header=1)
+    return df
+
+
+def create_extract_date(df):
+    """Function that will create a column in dataframe that specifies when file was uploaded"""
     df["Date Uploaded"] = datetime.date(datetime.now())
     return df
 
 
-def clean_col(df):
+def drop_columns(df):
     """Function that will delete the unnecessary columns we do not need"""
     df = df.drop(
         columns=[
@@ -52,12 +42,16 @@ def clean_col(df):
             "Link to School Dashboard",
         ]
     )
-    # rename the columns to add '_' as spaces to easily query from DB
+    return df
+
+
+def rename_columns(df):
+    """Function that will rename the columns to add '_' as spaces to easily query from DB"""
     df.columns = df.columns.str.replace(" ", "_")
     return df
 
 
-def change_table(df):
+def pivot_by_date(df):
     """Function that will pivot the table to have different rows for different active dates for students"""
     active_dates = []
     for col in df.columns:
@@ -94,7 +88,7 @@ def change_table(df):
     return df
 
 
-def change_col(df):
+def reformat_active_date(df):
     """reformat the 'Active Date' values to only date
     Before the transformation, 'Active Date' had 'Active_MM/DD' but we want to strip it down to only the date
     Example: 'Active_08/16' is now '08/16/2020'"""
@@ -125,15 +119,32 @@ def load_newest_data(sql, df):
     logging.info(f"Inserted {len(df)} new records into SeeSaw_Student_Activity.")
 
 
+def configure_logging(config):
+    logging.basicConfig(
+        handlers=[
+            logging.FileHandler(filename="data/app.log", mode="w+"),
+            logging.StreamHandler(sys.stdout),
+        ],
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s: %(message)s",
+        datefmt="%Y-%m-%d %I:%M:%S%p %Z",
+    )
+    logging.getLogger("google_auth_oauthlib").setLevel(logging.ERROR)
+    logging.getLogger("googleapiclient").setLevel(logging.ERROR)
+    logging.getLogger("google").setLevel(logging.ERROR)
+
+
 def main():
     drive = DriveFolder()
     drive.get_file_metadata()
     drive.download_file()
     files = glob.glob("KIPP_Bay_Area_Schools*.csv")  # one each week
-    df = create(files)
-    df = clean_col(df)
-    df = change_table(df)
-    df = change_col(df)
+    df = extract(files)
+    df = create_extract_date(df)
+    df = drop_columns(df)
+    df = rename_columns(df)
+    df = pivot_by_date(df)
+    df = reformat_active_date(df)
     sql = MSSQL()
     load_newest_data(sql, df)
 
