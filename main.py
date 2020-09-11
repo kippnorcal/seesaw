@@ -5,12 +5,11 @@ import re
 import logging
 import traceback
 
-from googleapiclient.discovery import build
-from google.oauth2 import service_account
+
 import pandas as pd
 from sqlsorcery import MSSQL
 
-from drive import Drive
+from drive import DriveFolder
 from mailer import Mailer
 
 
@@ -20,7 +19,7 @@ def configure_logging(config):
             logging.FileHandler(filename="data/app.log", mode="w+"),
             logging.StreamHandler(sys.stdout),
         ],
-        level=logging.DEBUG if config.DEBUG else logging.INFO,
+        level=logging.INFO,
         format="%(asctime)s | %(levelname)s: %(message)s",
         datefmt="%Y-%m-%d %I:%M:%S%p %Z",
     )
@@ -29,26 +28,16 @@ def configure_logging(config):
     logging.getLogger("google").setLevel(logging.ERROR)
 
 
-def get_credentials():
-    """Generate service account credentials object"""
-    SCOPES = [
-        "https://www.googleapis.com/auth/drive",
-    ]
-    return service_account.Credentials.from_service_account_file(
-        "service.json", scopes=SCOPES, subject=os.getenv("ACCOUNT_EMAIL")
-    )
-
-
-# Function that will create my dataframe
 def create(files_array):
+    """Function that will create my dataframe"""
     df = pd.read_csv(files_array[0], sep=",", header=1)
     df["Date Uploaded"] = datetime.date(datetime.now())
     return df
 
 
-# Function that will delete the unnecessary columns we do not need
-def clean_col(dataframe):
-    dataframe = dataframe.drop(
+def clean_col(df):
+    """Function that will delete the unnecessary columns we do not need"""
+    df = df.drop(
         columns=[
             "Days Active in Past Week",
             "Posts Added to Student Journal in Past Week",
@@ -64,17 +53,17 @@ def clean_col(dataframe):
         ]
     )
     # rename the columns to add '_' as spaces to easily query from DB
-    dataframe.columns = dataframe.columns.str.replace(" ", "_")
-    return dataframe
+    df.columns = df.columns.str.replace(" ", "_")
+    return df
 
 
-# Function that will pivot the table to have different rows for different active dates for students
-def change_table(dataframe):
+def change_table(df):
+    """Function that will pivot the table to have different rows for different active dates for students"""
     active_dates = []
-    for col in dataframe.columns:
+    for col in df.columns:
         if col.startswith("Active"):  # only gets columns with 'Active_MM/DD'
             active_dates.append(col)
-    dataframe = dataframe.melt(
+    df = df.melt(
         id_vars=[
             "School_Name",
             "Student_Name",
@@ -89,7 +78,7 @@ def change_table(dataframe):
         value_name="WasActive",
     )
     # rearrange the columns
-    dataframe = dataframe[
+    df = df[
         [
             "School_Name",
             "Student_Name",
@@ -102,42 +91,49 @@ def change_table(dataframe):
             "Link_to_Student_Portfolio",
         ]
     ]
-    # reformat the 'Active Date' values to only date
-    # Before the transformation, 'Active Date' had 'Active_MM/DD' but we want to strip it down to only the date
-    # Example: 'Active_08/16' is now '08/16/2020'
-    dataframe["Active_Date"] = (
-        dataframe["Active_Date"].str.replace("Active_", "")
-        + "/"
-        + str(datetime.date(datetime.now()).year)
+    return df
+
+
+def change_col(df):
+    """reformat the 'Active Date' values to only date
+    Before the transformation, 'Active Date' had 'Active_MM/DD' but we want to strip it down to only the date
+    Example: 'Active_08/16' is now '08/16/2020'"""
+    # df["Active_Date"] = (
+    #     df["Active_Date"].str.replace("Active_", "")
+    #     + "/"
+    #     + str(datetime.date(datetime.now()).year)
+    # )
+    df["Active_Date"] = df["Active_Date"].str.replace("Active_", "")
+    df["Active_Date"] = df["Active_Date"].apply(
+        lambda x: f"{x}/{str(datetime.date(datetime.now()).year)}"
     )
-    dataframe["WasActive"] = dataframe["WasActive"].fillna(
-        0
-    )  # fill null values with 0 to indicate the student is not active
-    dataframe["Active_Date"] = dataframe["Active_Date"].astype("datetime64[ns]")
-    return dataframe
+    not_active = 0
+    df["WasActive"] = df["WasActive"].fillna(not_active)
+    df["Active_Date"] = df["Active_Date"].astype("datetime64[ns]")
+    return df
 
 
-# Function to load data that we don't have
 def load_newest_data(sql, df):
+    """Function to load data that we don't have"""
     time = sql.query(
         "SELECT MAX(Active_Date) AS Active_Date FROM custom.SeeSaw_Student_Activity"
     )
     latest_timestamp = time["Active_Date"][0]
-    df = df[df["Active_Date"] > latest_timestamp]
+    if latest_timestamp != None:
+        df = df[df["Active_Date"] > latest_timestamp]
     sql.insert_into("SeeSaw_Student_Activity", df)
     logging.info(f"Inserted {len(df)} new records into SeeSaw_Student_Activity.")
 
 
 def main():
-    creds = get_credentials()
-    service = build("drive", "v3", credentials=creds)
-    drive = Drive(service)
+    drive = DriveFolder()
     drive.get_file_metadata()
     drive.download_file()
     files = glob.glob("KIPP_Bay_Area_Schools*.csv")  # one each week
     df = create(files)
     df = clean_col(df)
     df = change_table(df)
+    df = change_col(df)
     sql = MSSQL()
     load_newest_data(sql, df)
 

@@ -3,13 +3,25 @@ import os
 
 import pandas as pd
 from googleapiclient.http import MediaIoBaseDownload
+from googleapiclient.discovery import build
+from google.oauth2 import service_account
 
 parent_folder = os.getenv("SEESAW_FOLDER")
 
 
-class Drive:
-    def __init__(self, service):
-        self.service = service
+class DriveFolder:
+    def __init__(self):
+        self.creds = self.get_credentials()
+        self.service = build("drive", "v3", credentials=self.creds)
+
+    def get_credentials(self):
+        """Generate service account credentials object"""
+        SCOPES = [
+            "https://www.googleapis.com/auth/drive",
+        ]
+        return service_account.Credentials.from_service_account_file(
+            "service.json", scopes=SCOPES, subject=os.getenv("ACCOUNT_EMAIL")
+        )
 
     def get_file_metadata(self):
         """Get the latest SeeSaw activity csv and store its name and id."""
