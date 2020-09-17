@@ -92,11 +92,6 @@ def reformat_active_date(df):
     """reformat the 'Active Date' values to only date
     Before the transformation, 'Active Date' had 'Active_MM/DD' but we want to strip it down to only the date
     Example: 'Active_08/16' is now '08/16/2020'"""
-    # df["Active_Date"] = (
-    #     df["Active_Date"].str.replace("Active_", "")
-    #     + "/"
-    #     + str(datetime.date(datetime.now()).year)
-    # )
     df["Active_Date"] = df["Active_Date"].str.replace("Active_", "")
     df["Active_Date"] = df["Active_Date"].apply(
         lambda x: f"{x}/{str(datetime.date(datetime.now()).year)}"
@@ -109,12 +104,13 @@ def reformat_active_date(df):
 
 def load_newest_data(sql, df):
     """Function to load data that we don't have"""
-    time = sql.query(
-        "SELECT MAX(Active_Date) AS Active_Date FROM custom.SeeSaw_Student_Activity"
-    )
-    latest_timestamp = time["Active_Date"][0]
-    if latest_timestamp != None:
-        df = df[df["Active_Date"] > latest_timestamp]
+    if sql.engine.has_table("SeeSaw_Student_Activity", schema="custom"):
+        time = sql.query(
+            "SELECT MAX(Active_Date) AS Active_Date FROM custom.SeeSaw_Student_Activity"
+        )
+        latest_timestamp = time["Active_Date"][0]
+        if latest_timestamp != None:
+            df = df[df["Active_Date"] > latest_timestamp]
     sql.insert_into("SeeSaw_Student_Activity", df)
     logging.info(f"Inserted {len(df)} new records into SeeSaw_Student_Activity.")
 
@@ -136,7 +132,6 @@ def configure_logging(config):
 
 def main():
     drive = DriveFolder()
-    drive.get_file_metadata()
     drive.download_file()
     files = glob.glob("KIPP_Bay_Area_Schools*.csv")  # one each week
     df = extract(files)
