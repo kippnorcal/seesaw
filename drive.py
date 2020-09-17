@@ -11,10 +11,10 @@ parent_folder = os.getenv("SEESAW_FOLDER")
 
 class DriveFolder:
     def __init__(self):
-        self.creds = self.get_credentials()
+        self.creds = self._get_credentials()
         self.service = build("drive", "v3", credentials=self.creds)
 
-    def get_credentials(self):
+    def _get_credentials(self):
         """Generate service account credentials object"""
         SCOPES = [
             "https://www.googleapis.com/auth/drive",
@@ -23,7 +23,7 @@ class DriveFolder:
             "service.json", scopes=SCOPES, subject=os.getenv("ACCOUNT_EMAIL")
         )
 
-    def get_file_metadata(self):
+    def _get_metadata(self):
         """Get the latest SeeSaw activity csv and store its name and id."""
         options = {
             "q": f"'{parent_folder}' in parents and mimeType='text/csv'",  # exclude folder type
@@ -36,6 +36,7 @@ class DriveFolder:
 
     def download_file(self):
         """Download the data csv and save in project folder"""
+        self._get_metadata()
         request = self.service.files().get_media(fileId=self.file_id)
         fh = io.FileIO(self.file_name, mode="wb")
         downloader = MediaIoBaseDownload(fh, request)
