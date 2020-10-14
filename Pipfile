@@ -6,10 +6,13 @@ verify_ssl = true
 [dev-packages]
 
 [packages]
-google-api-python-client = "*"
-google-auth-httplib2 = "*"
-google-auth-oauthlib = "*"
+selenium = "*"
 sqlsorcery = {extras = ["mssql"],version = "*"}
+google-api-python-client = "*"
+google-auth-oauthlib = "*"
+google-auth-httplib2 = "*"
+beautifulsoup4 = "*"
+tenacity = "*"
 
 [requires]
 python_version = "3.7"

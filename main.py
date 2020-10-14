@@ -1,22 +1,140 @@
+import base64
+import datetime as dt
 from datetime import datetime
-import glob
-import os
-import re
 import logging
+import os
+import sys
+import time
 import traceback
 
-
+from bs4 import BeautifulSoup
+from googleapiclient.discovery import build
+from google.oauth2 import service_account
 import pandas as pd
+from selenium import webdriver
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
 from sqlsorcery import MSSQL
+from tenacity import retry, stop_after_attempt, wait_exponential, TryAgain
 
-from drive import DriveFolder
 from mailer import Mailer
 
 
-def extract(files_array):
-    """Function that will extract my CSV into a dataframe"""
-    df = pd.read_csv(files_array[0], sep=",", header=1)
+def request_report_export():
+    """Selenium steps to request report export in SeeSaw."""
+    browser = create_driver()
+    browser.implicitly_wait(5)
+    login(browser)
+    get_student_activity_report(browser)
+    logging.debug("Requested report export.")
+
+
+def create_driver():
+    """Create browser driver."""
+    profile = webdriver.FirefoxProfile()
+    return webdriver.Firefox(firefox_profile=profile)
+
+
+def login(browser):
+    """Log into SeeSaw application as an administrator."""
+    browser.get("https://app.seesaw.me/#/login?role=org_admin")
+    time.sleep(5)
+    user_field = browser.find_element_by_id("sign_in_email")
+    user_field.send_keys(os.getenv("SEESAW_USER"))
+    password_field = browser.find_element_by_id("sign_in_password")
+    password_field.send_keys(os.getenv("SEESAW_PASSWORD"))
+    submit_button = browser.find_element_by_xpath(
+        "//button[text()=' Administrator Sign In ']"
+    )
+    submit_button.click()
+
+
+def get_student_activity_report(browser):
+    """Click to request student activity report export"""
+    WebDriverWait(browser, 100).until(
+        EC.element_to_be_clickable(
+            (By.XPATH, "//a[@ng-click='startStudentActivityReportForDistrict()']")
+        )
+    ).click()
+    browser.implicitly_wait(5)
+    WebDriverWait(browser, 100).until(
+        EC.element_to_be_clickable(
+            (By.XPATH, "//div[text()='Get Student Activity Report']")
+        )
+    ).click()
+
+
+def get_credentials():
+    """Generate service account credentials object (used for Google API)"""
+    SCOPES = [
+        "https://www.googleapis.com/auth/gmail.readonly",
+    ]
+    return service_account.Credentials.from_service_account_file(
+        "service.json", scopes=SCOPES, subject=os.getenv("SERVICE_ACCOUNT_EMAIL")
+    )
+
+
+def download_activity_file(gmail_service):
+    """Find the download link in email and get the file"""
+    message_id = retrieve_message_id(gmail_service)
+    link_text = parse_email_message(gmail_service, message_id)
+    df = pd.read_csv(link_text, sep=",", header=1)
     return df
+
+
+@retry(
+    wait=wait_exponential(multiplier=2, min=30, max=120), stop=stop_after_attempt(10)
+)
+def retrieve_message_id(service):
+    """Find the message id from today that matches the subject."""
+    today = dt.datetime.now().strftime("%A, %B %d, %Y")
+    results = (
+        service.users()
+        .messages()
+        .list(
+            userId="me",  # same user as service account login
+            q=f"Student Activity Report for KIPP Bay Area Schools on {today}",
+        )
+        .execute()
+    )
+    if results.get("resultSizeEstimate") != 0:
+        # only need one message if there are multiple within a day
+        # SeeSaw data returns from previous day onward
+        logging.info(f"Found email for {today}")
+        return results.get("messages")[0].get("id")
+    else:
+        raise Exception("Email message not found in inbox.")
+
+
+@retry(wait=wait_exponential(multiplier=2, min=10, max=40), stop=stop_after_attempt(5))
+def parse_email_message(gmail_service, message_id):
+    """Get download link from message parts of the given message id."""
+    results = gmail_service.users().messages().get(userId="me", id=message_id).execute()
+    parts = results.get("payload").get("parts")
+    if not parts:
+        raise TryAgain  # sometimes the message is found but parts returns empty
+    else:
+        link_text = None
+        for part in parts:
+            if part.get("mimeType") == "text/html":
+                link_text = find_download_link(part)
+                return link_text
+
+
+def find_download_link(part):
+    """Find download link within the email html body"""
+    # decode base64 message part
+    body_data = part.get("body").get("data").replace("-", "+").replace("_", "/")
+    message = base64.b64decode(bytes(body_data, "UTF-8"))
+    # use beautifulsoup to find the csv hyperlink text
+    soup = BeautifulSoup(message, features="html.parser")
+    message_body = soup.body()
+    links = soup.find_all("a")
+    for link in links:
+        if ".csv" in link.get("href"):
+            return link.get("href")
+    return None
 
 
 def create_extract_date(df):
@@ -118,7 +236,7 @@ def load_newest_data(sql, df):
 def configure_logging(config):
     logging.basicConfig(
         handlers=[
-            logging.FileHandler(filename="data/app.log", mode="w+"),
+            logging.FileHandler(filename="app.log", mode="w+"),
             logging.StreamHandler(sys.stdout),
         ],
         level=logging.INFO,
@@ -131,10 +249,11 @@ def configure_logging(config):
 
 
 def main():
-    drive = DriveFolder()
-    drive.download_file()
-    files = glob.glob("KIPP_Bay_Area_Schools*.csv")  # one each week
-    df = extract(files)
+    configure_logging()
+    creds = get_credentials()
+    gmail_service = build("gmail", "v1", credentials=creds)
+    request_report_export()
+    df = download_activity_file(gmail_service)
     df = create_extract_date(df)
     df = drop_columns(df)
     df = rename_columns(df)
