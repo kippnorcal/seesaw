@@ -94,7 +94,7 @@ def retrieve_message_id(service):
         .messages()
         .list(
             userId="me",  # same user as service account login
-            q=f"Student Activity Report for KIPP Bay Area Schools on {today}",
+            q=f"from:do-not-reply@seesaw.me Student Activity Report for KIPP Bay Area Schools on {today}",
         )
         .execute()
     )
@@ -233,13 +233,13 @@ def load_newest_data(sql, df):
     logging.info(f"Inserted {len(df)} new records into SeeSaw_Student_Activity.")
 
 
-def configure_logging(config):
+def configure_logging():
     logging.basicConfig(
         handlers=[
             logging.FileHandler(filename="app.log", mode="w+"),
             logging.StreamHandler(sys.stdout),
         ],
-        level=logging.INFO,
+        level=logging.DEBUG if int(os.getenv("DEBUG_MODE")) else logging.INFO,
         format="%(asctime)s | %(levelname)s: %(message)s",
         datefmt="%Y-%m-%d %I:%M:%S%p %Z",
     )
