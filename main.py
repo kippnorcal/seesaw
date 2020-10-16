@@ -3,6 +3,7 @@ import datetime as dt
 from datetime import datetime
 import logging
 import os
+import requests
 import sys
 import time
 import traceback
@@ -19,6 +20,21 @@ from sqlsorcery import MSSQL
 from tenacity import retry, stop_after_attempt, wait_exponential, TryAgain
 
 from mailer import Mailer
+
+
+def configure_logging():
+    logging.basicConfig(
+        handlers=[
+            logging.FileHandler(filename="app.log", mode="w+"),
+            logging.StreamHandler(sys.stdout),
+        ],
+        level=logging.DEBUG if int(os.getenv("DEBUG_MODE")) else logging.INFO,
+        format="%(asctime)s | %(levelname)s: %(message)s",
+        datefmt="%Y-%m-%d %I:%M:%S%p %Z",
+    )
+    logging.getLogger("google_auth_oauthlib").setLevel(logging.ERROR)
+    logging.getLogger("googleapiclient").setLevel(logging.ERROR)
+    logging.getLogger("google").setLevel(logging.ERROR)
 
 
 def request_report_export():
@@ -75,11 +91,21 @@ def get_credentials():
     )
 
 
+def download_file(link_text):
+    """Use requests to download the file through the link."""
+    r = requests.get(link_text)
+    with open("activity_data.csv", "wb") as f:
+        f.write(r.content)
+    logging.info("Downloaded SeeSaw Activity file from email.")
+
+
 def download_activity_file(gmail_service):
     """Find the download link in email and get the file"""
     message_id = retrieve_message_id(gmail_service)
     link_text = parse_email_message(gmail_service, message_id)
-    df = pd.read_csv(link_text, sep=",", header=1)
+    download_file(link_text)
+    df = pd.read_csv("activity_data.csv", sep=",", header=1)
+    logging.info(f"Read {len(df)} records from csv into df.")
     return df
 
 
@@ -101,7 +127,7 @@ def retrieve_message_id(service):
     if results.get("resultSizeEstimate") != 0:
         # only need one message if there are multiple within a day
         # SeeSaw data returns from previous day onward
-        logging.info(f"Found email for {today}")
+        logging.info(f"Found email message for {today}.")
         return results.get("messages")[0].get("id")
     else:
         raise Exception("Email message not found in inbox.")
@@ -231,21 +257,6 @@ def load_newest_data(sql, df):
             df = df[df["Active_Date"] > latest_timestamp]
     sql.insert_into("SeeSaw_Student_Activity", df)
     logging.info(f"Inserted {len(df)} new records into SeeSaw_Student_Activity.")
-
-
-def configure_logging():
-    logging.basicConfig(
-        handlers=[
-            logging.FileHandler(filename="app.log", mode="w+"),
-            logging.StreamHandler(sys.stdout),
-        ],
-        level=logging.DEBUG if int(os.getenv("DEBUG_MODE")) else logging.INFO,
-        format="%(asctime)s | %(levelname)s: %(message)s",
-        datefmt="%Y-%m-%d %I:%M:%S%p %Z",
-    )
-    logging.getLogger("google_auth_oauthlib").setLevel(logging.ERROR)
-    logging.getLogger("googleapiclient").setLevel(logging.ERROR)
-    logging.getLogger("google").setLevel(logging.ERROR)
 
 
 def main():
