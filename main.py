@@ -3,6 +3,7 @@ import datetime as dt
 from datetime import datetime
 import logging
 import os
+import requests
 import sys
 import time
 import traceback
@@ -19,6 +20,21 @@ from sqlsorcery import MSSQL
 from tenacity import retry, stop_after_attempt, wait_exponential, TryAgain
 
 from mailer import Mailer
+
+
+def configure_logging():
+    logging.basicConfig(
+        handlers=[
+            logging.FileHandler(filename="app.log", mode="w+"),
+            logging.StreamHandler(sys.stdout),
+        ],
+        level=logging.DEBUG if int(os.getenv("DEBUG_MODE")) else logging.INFO,
+        format="%(asctime)s | %(levelname)s: %(message)s",
+        datefmt="%Y-%m-%d %I:%M:%S%p %Z",
+    )
+    logging.getLogger("google_auth_oauthlib").setLevel(logging.ERROR)
+    logging.getLogger("googleapiclient").setLevel(logging.ERROR)
+    logging.getLogger("google").setLevel(logging.ERROR)
 
 
 def request_report_export():
@@ -75,11 +91,21 @@ def get_credentials():
     )
 
 
+def download_file(link_text):
+    """Use requests to download the file through the link."""
+    r = requests.get(link_text)
+    with open("activity_data.csv", "wb") as f:
+        f.write(r.content)
+    logging.info("Downloaded SeeSaw Activity file from email.")
+
+
 def download_activity_file(gmail_service):
     """Find the download link in email and get the file"""
     message_id = retrieve_message_id(gmail_service)
     link_text = parse_email_message(gmail_service, message_id)
-    df = pd.read_csv(link_text, sep=",", header=1)
+    download_file(link_text)
+    df = pd.read_csv("activity_data.csv", sep=",", header=1)
+    logging.info(f"Read {len(df)} records from csv into df.")
     return df
 
 
@@ -94,14 +120,14 @@ def retrieve_message_id(service):
         .messages()
         .list(
             userId="me",  # same user as service account login
-            q=f"Student Activity Report for KIPP Bay Area Schools on {today}",
+            q=f"from:do-not-reply@seesaw.me Student Activity Report for KIPP Bay Area Schools on {today}",
         )
         .execute()
     )
     if results.get("resultSizeEstimate") != 0:
         # only need one message if there are multiple within a day
         # SeeSaw data returns from previous day onward
-        logging.info(f"Found email for {today}")
+        logging.info(f"Found email message for {today}.")
         return results.get("messages")[0].get("id")
     else:
         raise Exception("Email message not found in inbox.")
@@ -143,8 +169,8 @@ def create_extract_date(df):
     return df
 
 
-def drop_columns(df):
-    """Function that will delete the unnecessary columns we do not need"""
+def process_daily_activity(sql, df):
+    """ETL daily activity columns from df into data warehouse."""
     df = df.drop(
         columns=[
             "Days Active in Past Week",
@@ -158,15 +184,12 @@ def drop_columns(df):
             "Active Yesterday (1 = yes)",
             "Active in Last 7 Days (1 = yes)",
             "Link to School Dashboard",
-        ]
+        ],
     )
-    return df
-
-
-def rename_columns(df):
-    """Function that will rename the columns to add '_' as spaces to easily query from DB"""
     df.columns = df.columns.str.replace(" ", "_")
-    return df
+    df = pivot_by_date(df)
+    df = reformat_active_date(df)
+    load_newest_table_data(sql, df, "SeeSaw_Student_Activity")
 
 
 def pivot_by_date(df):
@@ -220,47 +243,79 @@ def reformat_active_date(df):
     return df
 
 
-def load_newest_data(sql, df):
-    """Function to load data that we don't have"""
-    if sql.engine.has_table("SeeSaw_Student_Activity", schema="custom"):
-        time = sql.query(
-            "SELECT MAX(Active_Date) AS Active_Date FROM custom.SeeSaw_Student_Activity"
-        )
-        latest_timestamp = time["Active_Date"][0]
-        if latest_timestamp != None:
-            df = df[df["Active_Date"] > latest_timestamp]
-    sql.insert_into("SeeSaw_Student_Activity", df)
-    logging.info(f"Inserted {len(df)} new records into SeeSaw_Student_Activity.")
-
-
-def configure_logging(config):
-    logging.basicConfig(
-        handlers=[
-            logging.FileHandler(filename="app.log", mode="w+"),
-            logging.StreamHandler(sys.stdout),
-        ],
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s: %(message)s",
-        datefmt="%Y-%m-%d %I:%M:%S%p %Z",
+def update_week_keys(sql):
+    """Update the week key based on lkweeks start and end dates."""
+    sql.exec_cmd(
+        """
+        UPDATE custom.SeeSaw_Student_Activity_Weekly
+        SET WeekKey = lkw.weekkey
+        FROM custom.SeeSaw_Student_Activity_Weekly ssw
+        INNER JOIN custom.lk_Weeks lkw
+            ON lkw.WeekStart = ssw.WeekStart
+            AND lkw.WeekEnd = ssw.WeekEnd
+        WHERE ssw.WeekKey IS NULL
+    """
     )
-    logging.getLogger("google_auth_oauthlib").setLevel(logging.ERROR)
-    logging.getLogger("googleapiclient").setLevel(logging.ERROR)
-    logging.getLogger("google").setLevel(logging.ERROR)
+
+
+def process_weekly_activity(sql, df):
+    """ETL weekly activity columns from df into data warehouse."""
+    columns = {
+        "School Name": "School_Name",
+        "Student Name": "Student_Name",
+        "Student ID": "Student_ID",
+        "Grade Level": "Grade_Level",
+        "Last Active Date": "Last_Active_Date",
+        "Days Active in Past Week": "Days_Active_Past_Week",
+        "Posts Added to Student Journal in Past Week": "Posts_Added_Past_Week",
+        "Comments in Past Week": "Comments_Past_Week",
+        "Posts Added to Student Journal Yesterday": "Days_with_Posts_Added_Past_Week",
+        "Days Commented in Past Week": "Days_Commented_Past_Week",
+        "Date Uploaded": "Date_Uploaded",
+    }
+    df = df[columns.keys()].copy()
+    df.rename(columns=columns, inplace=True)
+    df = parse_week(df)
+    sql.insert_into("SeeSaw_Student_Activity_Weekly", df)
+    logging.info(f"Inserted {len(df)} new records into SeeSaw_Student_Activity_Weekly.")
+    update_week_keys(sql)
+
+
+def parse_week(df):
+    with open("activity_data.csv") as f:
+        first_line = f.readline()
+    dates = [string.strip() for string in first_line.split(" - ")]
+    df["WeekStart"] = dt.datetime.strptime(dates[0], "%Y-%m-%d %H:%M %Z%z").date()
+    df["WeekEnd"] = dt.datetime.strptime(dates[1], "%Y-%m-%d %H:%M %Z%z").date()
+    return df
+
+
+def load_newest_table_data(sql, df, table_name):
+    """Insert the newest data into the given database table, based on Last_Active_Date column.
+    
+    table_name: the name of the table that we're inserting data into
+    """
+    if sql.engine.has_table(table_name, schema="custom"):
+        time = sql.query(
+            f"SELECT MAX(Last_Active_Date) AS Last_Active_Date FROM custom.{table_name}"
+        )
+        latest_timestamp = time["Last_Active_Date"][0]
+        if latest_timestamp != None:
+            df = df[df["Last_Active_Date"] > latest_timestamp]
+    sql.insert_into(table_name, df)
+    logging.info(f"Inserted {len(df)} new records into {table_name}.")
 
 
 def main():
+    sql = MSSQL()
     configure_logging()
     creds = get_credentials()
     gmail_service = build("gmail", "v1", credentials=creds)
     request_report_export()
     df = download_activity_file(gmail_service)
     df = create_extract_date(df)
-    df = drop_columns(df)
-    df = rename_columns(df)
-    df = pivot_by_date(df)
-    df = reformat_active_date(df)
-    sql = MSSQL()
-    load_newest_data(sql, df)
+    process_daily_activity(sql, df)
+    process_weekly_activity(sql, df)
 
 
 if __name__ == "__main__":
