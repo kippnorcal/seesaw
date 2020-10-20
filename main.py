@@ -169,8 +169,8 @@ def create_extract_date(df):
     return df
 
 
-def drop_columns(df):
-    """Function that will delete the unnecessary columns we do not need"""
+def process_daily_activity(sql, df):
+    """ETL daily activity columns from df into data warehouse."""
     df = df.drop(
         columns=[
             "Days Active in Past Week",
@@ -184,15 +184,12 @@ def drop_columns(df):
             "Active Yesterday (1 = yes)",
             "Active in Last 7 Days (1 = yes)",
             "Link to School Dashboard",
-        ]
+        ],
     )
-    return df
-
-
-def rename_columns(df):
-    """Function that will rename the columns to add '_' as spaces to easily query from DB"""
     df.columns = df.columns.str.replace(" ", "_")
-    return df
+    df = pivot_by_date(df)
+    df = reformat_active_date(df)
+    load_newest_table_data(sql, df, "SeeSaw_Student_Activity")
 
 
 def pivot_by_date(df):
@@ -246,32 +243,68 @@ def reformat_active_date(df):
     return df
 
 
-def load_newest_data(sql, df):
-    """Function to load data that we don't have"""
-    if sql.engine.has_table("SeeSaw_Student_Activity", schema="custom"):
+def process_weekly_activity(sql, df):
+    """ETL weekly activity columns from df into data warehouse."""
+    columns = {
+        "School Name": "School_Name",
+        "Student Name": "Student_Name",
+        "Student ID": "Student_ID",
+        "Grade Level": "Grade_Level",
+        "Last Active Date": "Last_Active_Date",
+        "Days Active in Past Week": "Days_Active_Past_Week",
+        "Posts Added to Student Journal in Past Week": "Posts_Added_Past_Week",
+        "Comments in Past Week": "Comments_Past_Week",
+        "Posts Added to Student Journal Yesterday": "Days_with_Posts_Added_Past_Week",
+        "Days Commented in Past Week": "Days_Commented_Past_Week",
+        "Date Uploaded": "Date_Uploaded",
+    }
+    df = df[columns.keys()].copy()
+    df.rename(columns=columns, inplace=True)
+    df = read_week_date_range_from_file(df)
+    sql.insert_into("SeeSaw_Student_Activity_Weekly", df)
+    logging.info(f"Inserted {len(df)} new records into SeeSaw_Student_Activity_Weekly.")
+
+
+def read_week_date_range_from_file(df):
+    """Get the week range from the file and store in df.
+    
+    The first row of the file is a string that indicates the date range.
+    The csv data doesn't start until the second row.
+    """
+    with open("activity_data.csv") as f:
+        first_line = f.readline()
+    dates = [string.strip() for string in first_line.split(" - ")]
+    df["WeekStart"] = dt.datetime.strptime(dates[0], "%Y-%m-%d %H:%M %Z%z").date()
+    df["WeekEnd"] = dt.datetime.strptime(dates[1], "%Y-%m-%d %H:%M %Z%z").date()
+    return df
+
+
+def load_newest_table_data(sql, df, table_name):
+    """Insert the newest data into the given database table, based on Last_Active_Date column.
+    
+    table_name: the name of the table that we're inserting data into
+    """
+    if sql.engine.has_table(table_name, schema="custom"):
         time = sql.query(
-            "SELECT MAX(Active_Date) AS Active_Date FROM custom.SeeSaw_Student_Activity"
+            f"SELECT MAX(Last_Active_Date) AS Last_Active_Date FROM custom.{table_name}"
         )
-        latest_timestamp = time["Active_Date"][0]
+        latest_timestamp = time["Last_Active_Date"][0]
         if latest_timestamp != None:
-            df = df[df["Active_Date"] > latest_timestamp]
-    sql.insert_into("SeeSaw_Student_Activity", df)
-    logging.info(f"Inserted {len(df)} new records into SeeSaw_Student_Activity.")
+            df = df[df["Last_Active_Date"] > latest_timestamp]
+    sql.insert_into(table_name, df)
+    logging.info(f"Inserted {len(df)} new records into {table_name}.")
 
 
 def main():
+    sql = MSSQL()
     configure_logging()
     creds = get_credentials()
     gmail_service = build("gmail", "v1", credentials=creds)
     request_report_export()
     df = download_activity_file(gmail_service)
     df = create_extract_date(df)
-    df = drop_columns(df)
-    df = rename_columns(df)
-    df = pivot_by_date(df)
-    df = reformat_active_date(df)
-    sql = MSSQL()
-    load_newest_data(sql, df)
+    process_daily_activity(sql, df)
+    process_weekly_activity(sql, df)
 
 
 if __name__ == "__main__":
