@@ -243,21 +243,6 @@ def reformat_active_date(df):
     return df
 
 
-def update_week_keys(sql):
-    """Update the week key based on lkweeks start and end dates."""
-    sql.exec_cmd(
-        """
-        UPDATE custom.SeeSaw_Student_Activity_Weekly
-        SET WeekKey = lkw.weekkey
-        FROM custom.SeeSaw_Student_Activity_Weekly ssw
-        INNER JOIN custom.lk_Weeks lkw
-            ON lkw.WeekStart = ssw.WeekStart
-            AND lkw.WeekEnd = ssw.WeekEnd
-        WHERE ssw.WeekKey IS NULL
-    """
-    )
-
-
 def process_weekly_activity(sql, df):
     """ETL weekly activity columns from df into data warehouse."""
     columns = {
@@ -278,7 +263,6 @@ def process_weekly_activity(sql, df):
     df = read_week_date_range_from_file(df)
     sql.insert_into("SeeSaw_Student_Activity_Weekly", df)
     logging.info(f"Inserted {len(df)} new records into SeeSaw_Student_Activity_Weekly.")
-    update_week_keys(sql)
 
 
 def read_week_date_range_from_file(df):
