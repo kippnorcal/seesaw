@@ -275,13 +275,18 @@ def process_weekly_activity(sql, df):
     }
     df = df[columns.keys()].copy()
     df.rename(columns=columns, inplace=True)
-    df = parse_week(df)
+    df = read_week_date_range_from_file(df)
     sql.insert_into("SeeSaw_Student_Activity_Weekly", df)
     logging.info(f"Inserted {len(df)} new records into SeeSaw_Student_Activity_Weekly.")
     update_week_keys(sql)
 
 
-def parse_week(df):
+def read_week_date_range_from_file(df):
+    """Get the week range from the file and store in df.
+    
+    The first row of the file is a string that indicates the date range.
+    The csv data doesn't start until the second row.
+    """
     with open("activity_data.csv") as f:
         first_line = f.readline()
     dates = [string.strip() for string in first_line.split(" - ")]
