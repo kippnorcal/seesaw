@@ -91,7 +91,7 @@ def get_credentials():
     )
 
 
-def download_file(link_text):
+def save_data_file(link_text):
     """Use requests to download the file through the link."""
     r = requests.get(link_text)
     with open("activity_data.csv", "wb") as f:
@@ -99,11 +99,11 @@ def download_file(link_text):
     logging.info("Downloaded SeeSaw Activity file from email.")
 
 
-def download_activity_file(gmail_service):
+def retrieve_activity_data(gmail_service):
     """Find the download link in email and get the file"""
     message_id = retrieve_message_id(gmail_service)
     link_text = parse_email_message(gmail_service, message_id)
-    download_file(link_text)
+    save_data_file(link_text)
     df = pd.read_csv("activity_data.csv", sep=",", header=1)
     logging.info(f"Read {len(df)} records from csv into df.")
     return df
@@ -115,13 +115,11 @@ def download_activity_file(gmail_service):
 def retrieve_message_id(service):
     """Find the message id from today that matches the subject."""
     today = dt.datetime.now().strftime("%A, %B %d, %Y")
+    query = f"from:do-not-reply@seesaw.me Student Activity Report for KIPP Bay Area Schools on {today}"
     results = (
         service.users()
         .messages()
-        .list(
-            userId="me",  # same user as service account login
-            q=f"from:do-not-reply@seesaw.me Student Activity Report for KIPP Bay Area Schools on {today}",
-        )
+        .list(userId="me", q=query,)  # same user as service account login
         .execute()
     )
     if results.get("resultSizeEstimate") != 0:
@@ -301,7 +299,7 @@ def main():
     creds = get_credentials()
     gmail_service = build("gmail", "v1", credentials=creds)
     request_report_export()
-    df = download_activity_file(gmail_service)
+    df = retrieve_activity_data(gmail_service)
     df = create_extract_date(df)
     process_daily_activity(sql, df)
     process_weekly_activity(sql, df)
