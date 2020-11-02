@@ -259,6 +259,7 @@ def process_weekly_activity(sql, df):
     df = df[columns.keys()].copy()
     df.rename(columns=columns, inplace=True)
     df = read_week_date_range_from_file(df)
+    df["SchoolYear4Digit"] = os.getenv("SCHOOLYEAR_4DIGIT")
     sql.insert_into("SeeSaw_Student_Activity_Weekly", df)
     logging.info(f"Inserted {len(df)} new records into SeeSaw_Student_Activity_Weekly.")
 
