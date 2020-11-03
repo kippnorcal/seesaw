@@ -35,6 +35,8 @@ SEESAW_PASSWORD=
 EXPORT_EMAIL_ADDRESS=email address that the export is sent to (should be same as SeeSaw login)
 EXPORT_EMAIL_PASSWORD=email password
 
+SCHOOLYEAR_4DIGIT=
+
 # Database variables
 DB_TYPE=The type of database you are using. Current options: mssql, postgres, sqlite
 DB_SERVER=name of server
