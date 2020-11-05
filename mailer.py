@@ -28,7 +28,7 @@ class Mailer:
             return f"{self.jobname} completed successfully."
 
     def _attachments(self, msg):
-        filename = "data/app.log"
+        filename = "app.log"
         if os.path.exists(filename):
             with open(filename, "r") as attachment:
                 log = MIMEText(attachment.read())
