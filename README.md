@@ -1,7 +1,5 @@
 # SeeSaw
-
-## Goal:
-- Pull SeeSaw activity logs from a Google Drive and load into Data Warehouse.
+Request SeeSaw activity report export, retrieve the file from email, and load the data into database.
 
 
 ## Dependencies:
@@ -17,11 +15,10 @@
 
 1. Clone this repo
 ```
-git clone https://github.com/kipp-bayarea/seesaw.git
+git clone https://github.com/kippnorcal/seesaw.git
 ```
 
 2. Install dependencies
-- Docker can be installed from docker.com
 
 3. Create .env file with project secrets
 
@@ -56,9 +53,17 @@ EMAIL_PORT=
 # optional
 DEBUG_MODE=0
 ```
-## Running the job
 
-Before running the script, you need to create the table using the definition in the SeeSaw_Student_Activity.sql
+4. Create a service account with gmail read access, and save the service.json file in your project folder.
+
+ - [Google documentation on service accounts](https://support.google.com/a/answer/7378726?hl=en)
+
+5. Create the SeeSaw tables in your database.
+
+ - Create the two tables `SeeSaw_Student_Activity` and `SeeSaw_Student_Activity_Weekly` using the table definitions in the sql folder.
+
+
+## Running the job
 
 ### Using Docker:
 ```
