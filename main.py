@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 import pandas as pd
+from sqlalchemy import inspect
 from selenium import webdriver
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -119,7 +120,10 @@ def retrieve_message_id(service):
     results = (
         service.users()
         .messages()
-        .list(userId="me", q=query,)  # same user as service account login
+        .list(
+            userId="me",
+            q=query,
+        )  # same user as service account login
         .execute()
     )
     if results.get("resultSizeEstimate") != 0:
@@ -181,7 +185,6 @@ def process_daily_activity(sql, df):
             "Connected Family Members",
             "Active Yesterday (1 = yes)",
             "Active in Last 7 Days (1 = yes)",
-            "Link to School Dashboard",
         ],
     )
     df.columns = df.columns.str.replace(" ", "_")
@@ -266,7 +269,7 @@ def process_weekly_activity(sql, df):
 
 def read_week_date_range_from_file(df):
     """Get the week range from the file and store in df.
-    
+
     The first row of the file is a string that indicates the date range.
     The csv data doesn't start until the second row.
     """
@@ -280,10 +283,10 @@ def read_week_date_range_from_file(df):
 
 def load_newest_table_data(sql, df, table_name):
     """Insert the newest data into the given database table, based on Last_Active_Date column.
-    
+
     table_name: the name of the table that we're inserting data into
     """
-    if sql.engine.has_table(table_name, schema="custom"):
+    if inspect(sql.engine).has_table(table_name, schema="custom"):
         time = sql.query(
             f"SELECT MAX(Last_Active_Date) AS Last_Active_Date FROM custom.{table_name}"
         )
