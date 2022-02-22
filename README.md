@@ -74,3 +74,6 @@ docker run --rm -it seesaw
 ```
 
 
+## Maintenance
+* Update SCHOOLYEAR_4DIGIT in `.env` file. This feeds into a column in the SeeSaw_Student_Activity_Weekly table.
+* If a new school opens and uses SeeSaw, confirm that that school's data flows into the Student Activity Report export in SeeSaw.
